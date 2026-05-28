@@ -357,12 +357,30 @@ function RatingModal({restaurant,onSave,onClose}) {
   );
 }
 
+/* ─── COMMENT MODAL ─── */
+function CommentModal({restaurant,onSave,onClose}) {
+  const [text,setText]=useState(restaurant.comment||"");
+  return (
+    <Modal onClose={onClose}>
+      <p style={{fontSize:11,color:"var(--gold)",fontWeight:600,letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>Comentario</p>
+      <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:"var(--dark)",marginBottom:16}}>{restaurant.name}</h2>
+      <textarea placeholder="¿Qué recordáis de este sitio? Platos que pedisteis, anécdotas, qué pedir la próxima vez..." value={text} onChange={e=>setText(e.target.value)} rows={6}
+        style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1.5px solid var(--warm)",background:"#fff",fontSize:14,color:"var(--dark)",outline:"none",resize:"vertical",lineHeight:1.6}}/>
+      <div style={{display:"flex",gap:10,marginTop:16}}>
+        <button onClick={onClose} className="btn-o" style={{flex:1,padding:"12px",borderRadius:12,fontSize:14}}>Cancelar</button>
+        <button onClick={()=>onSave(text)} className="btn-g" style={{flex:2,padding:"12px",borderRadius:12,fontSize:15}}>Guardar 💬</button>
+      </div>
+    </Modal>
+  );
+}
+
 /* ─── ADD MODAL ─── */
 function AddModal({onSave,onClose}) {
   const [form,setForm]=useState({name:"",visited:false});
   const [answers,setAnswers]=useState(initAnswers());
   const [priceRange,setPriceRange]=useState(null);
   const [foodType,setFoodType]=useState(null);
+  const [comment,setComment]=useState("");
   const ratings=answersToRatings(answers);
   return (
     <Modal onClose={onClose}>
@@ -375,10 +393,15 @@ function AddModal({onSave,onClose}) {
         Ya lo hemos visitado — puntuar ahora
       </label>
       <FoodTypeSelector value={foodType} onChange={setFoodType}/>
+      <div style={{marginBottom:16}}>
+        <p style={{fontSize:13,color:"var(--text)",fontWeight:600,marginBottom:6}}>💬 Comentario / Notas</p>
+        <textarea placeholder="¿Qué recordáis? Platos que pedisteis, qué pedir la próxima vez..." value={comment} onChange={e=>setComment(e.target.value)} rows={3}
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid var(--warm)",background:"#fff",fontSize:13,color:"var(--dark)",outline:"none",resize:"vertical",lineHeight:1.5}}/>
+      </div>
       {form.visited&&<><PriceSelector value={priceRange} onChange={setPriceRange}/>{CRITERIA.map(c=><CriterionBlock key={c.key} criterion={c} answers={answers[c.key]} onChange={vals=>setAnswers(a=>({...a,[c.key]:vals}))}/>)}</>}
       <div style={{display:"flex",gap:10,marginTop:20}}>
         <button onClick={onClose} className="btn-o" style={{flex:1,padding:"12px",borderRadius:12,fontSize:14}}>Cancelar</button>
-        <button onClick={()=>{if(!form.name.trim())return;onSave({...form,ratings:form.visited?ratings:null,price_range:form.visited?priceRange:null,food_type:foodType,lat:40.4168+(Math.random()-.5)*.04,lng:-3.7038+(Math.random()-.5)*.04});}} className="btn-g" style={{flex:2,padding:"12px",borderRadius:12,fontSize:15}}>Agregar</button>
+        <button onClick={()=>{if(!form.name.trim())return;onSave({...form,ratings:form.visited?ratings:null,price_range:form.visited?priceRange:null,food_type:foodType,comment:comment||null,lat:40.4168+(Math.random()-.5)*.04,lng:-3.7038+(Math.random()-.5)*.04});}} className="btn-g" style={{flex:2,padding:"12px",borderRadius:12,fontSize:15}}>Agregar</button>
       </div>
     </Modal>
   );
@@ -566,6 +589,9 @@ export default function App() {
   const [pendSearch,setPendSearch]=useState("");
   const [listSearch,setListSearch]=useState("");
   const [showFilters,setShowFilters]=useState(false);
+  const [commentTarget,setCommentTarget]=useState(null);
+  const [filterType,setFilterType]=useState(null);
+  const [showTypeFilter,setShowTypeFilter]=useState(false);
 
   /* ── Supabase: load all restaurants ── */
   const loadRestaurants = useCallback(async () => {
@@ -629,6 +655,13 @@ export default function App() {
     setTarget(null);
   }, [loadRestaurants]);
 
+  /* ── Save comment ── */
+  const saveComment = useCallback(async (id, comment) => {
+    await supabase.from("restaurants").update({ comment }).eq("id", id);
+    await loadRestaurants();
+    setCommentTarget(null);
+  }, [loadRestaurants]);
+
   /* ── Mark visited ── */
   const markVisited = useCallback(async (id) => {
     await supabase.from("restaurants").update({ visited: true }).eq("id", id);
@@ -641,6 +674,7 @@ export default function App() {
       const { data: inserted, error } = await supabase.from("restaurants").insert([{
         name: data.name, visited: data.visited,
         price_range: data.price_range, food_type: data.food_type,
+        comment: data.comment||null,
         lat: data.lat, lng: data.lng,
       }]).select().single();
       if (error) throw error;
@@ -659,9 +693,10 @@ export default function App() {
   const rankingList = useMemo(()=>{
     let l=rests.filter(r=>r.ratings);
     if(search) l=l.filter(r=>r.name.toLowerCase().includes(search.toLowerCase()));
+    if(filterType) l=l.filter(r=>r.food_type===filterType);
     l.sort((a,b)=>sortBy==="avg"?(parseFloat(getAvg(b.ratings))||0)-(parseFloat(getAvg(a.ratings))||0):(b.ratings?.[sortBy]||0)-(a.ratings?.[sortBy]||0));
     return l.slice(0,20);
-  },[rests,sortBy,search]);
+  },[rests,sortBy,search,filterType]);
 
   const valorarList = useMemo(()=>{
     const v=rests.filter(r=>r.visited);
@@ -742,6 +777,27 @@ export default function App() {
                       <span>{c.icon}</span><span>{c.label}</span>{sortBy===c.key&&<span style={{marginLeft:"auto"}}>✓</span>}
                     </button>
                   ))}
+                  <div style={{height:1,background:"var(--warm)",margin:"8px 0"}}/>
+                  <div>
+                    <button onClick={()=>setShowTypeFilter(t=>!t)}
+                      style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 10px",borderRadius:8,border:"none",background:filterType?"linear-gradient(135deg,var(--gold),var(--gold-light))":"transparent",color:filterType?"var(--dark)":"var(--text)",cursor:"pointer",fontSize:13,fontWeight:filterType?700:400,textAlign:"left"}}>
+                      <span>🍽️</span><span>Tipos</span>
+                      {filterType&&<span style={{fontSize:11,marginLeft:4}}>({filterType})</span>}
+                      <span style={{marginLeft:"auto"}}>{showTypeFilter?"▲":"▼"}</span>
+                    </button>
+                    {showTypeFilter&&<div style={{marginTop:4,paddingLeft:8}}>
+                      <button onClick={()=>{setFilterType(null);setShowTypeFilter(false);}}
+                        style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"6px 10px",borderRadius:8,border:"none",background:!filterType?"#f0e8d0":"transparent",color:"var(--text)",cursor:"pointer",fontSize:12,marginBottom:2,textAlign:"left",fontWeight:!filterType?700:400}}>
+                        Todos los tipos{!filterType&&<span style={{marginLeft:"auto"}}>✓</span>}
+                      </button>
+                      {FOOD_TYPES.map(ft=>(
+                        <button key={ft} onClick={()=>{setFilterType(ft);setShowTypeFilter(false);setShowFilters(false);}}
+                          style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"6px 10px",borderRadius:8,border:"none",background:filterType===ft?"linear-gradient(135deg,var(--gold),var(--gold-light))":"transparent",color:filterType===ft?"var(--dark)":"var(--text)",cursor:"pointer",fontSize:12,marginBottom:2,textAlign:"left",fontWeight:filterType===ft?700:400}}>
+                          {ft}{filterType===ft&&<span style={{marginLeft:"auto"}}>✓</span>}
+                        </button>
+                      ))}
+                    </div>}
+                  </div>
                 </div>}
               </div>
             </div>
@@ -775,8 +831,13 @@ export default function App() {
                         style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:700,border:"none",cursor:"pointer",whiteSpace:"nowrap"}}>
                         🔍 Google
                       </button>
+                      <button onClick={()=>setCommentTarget(r)}
+                        style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:700,border:`1.5px solid ${r.comment?"var(--gold)":"var(--warm)"}`,background:r.comment?"#c9a84c22":"#fff",color:r.comment?"var(--gold)":"var(--muted)",cursor:"pointer",whiteSpace:"nowrap"}}>
+                        {r.comment?"💬 Ver":"💬 Nota"}
+                      </button>
                     </div>
                   </div>
+                  {r.comment&&<p style={{fontSize:12,color:"var(--muted)",marginTop:4,fontStyle:"italic",paddingLeft:2}}>"{r.comment}"</p>}
                 );
               })}
             </div>
@@ -842,6 +903,7 @@ export default function App() {
         </div>
       </div>
 
+      {commentTarget&&<CommentModal restaurant={commentTarget} onSave={(text)=>saveComment(commentTarget.id,text)} onClose={()=>setCommentTarget(null)}/>}
       {target&&<RatingModal restaurant={target} onSave={(r,p,f)=>saveRating(target.id,r,p,f)} onClose={()=>setTarget(null)}/>}
       {showAdd&&<AddModal onSave={addRestaurant} onClose={()=>setShowAdd(false)}/>}
     </>
